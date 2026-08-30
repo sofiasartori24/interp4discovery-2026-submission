@@ -1,0 +1,21 @@
+# Pinned to the exact versions the reported results were produced and verified with
+# (resolved from this project's poetry.lock). Only the packages the reproduction path
+# actually imports: analysis/*.py and src/boardsae/{discovery,validity,io}. The rest of
+# src/boardsae/ (model loading, SAE loading, the population pipeline) needs torch and
+# transformer_lens and is not exercised by anything in this release -- see README.md.
+numpy==1.26.4
+pandas==2.3.3
+scipy==1.17.1
+matplotlib==3.11.1
+pydantic==2.13.4
+pyarrow==25.0.0
+factor-analyzer==0.5.1
+
+# scikit-learn is a transitive dependency of factor-analyzer, not imported directly here.
+# factor-analyzer's current PyPI release calls scikit-learn's check_array(force_all_finite=...),
+# removed in scikit-learn 1.8 (renamed to ensure_all_finite in 1.6). Cap below that until
+# a factor-analyzer release picks up the fix (already on its GitHub main).
+scikit-learn>=1.4,<1.8
+
+# Only needed to run tests/unit/.
+pytest>=8.0
