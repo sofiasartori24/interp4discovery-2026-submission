@@ -708,6 +708,123 @@ def main(
         hits = len(picked & true_top10)
         print(f"  {label:20s} hits {hits:2d} of the 10 best, misses {10 - hits:2d}")
 
+    # ------------------------------------------------------- CAMERA-READY ADDITIONS
+    _header(
+        "Shortfall recomputed within each reseed",
+        "Sec. Results, 'Inside the healthy band'; App. C, 'Shortfall per reseed'",
+    )
+    # Table 1 is denominated in board recovery averaged over seeds; this asks whether the
+    # metric-versus-random comparison survives inside a single probe split.
+    occupancy_rows = cast(
+        pd.DataFrame, gt_rows[gt_rows["name"].str.startswith("occupancy_balacc")]
+    )
+    proxy_rows = cast(pd.DataFrame, df[df["quantity_kind"] != "ground_truth"])
+    for seed in sorted(occupancy_rows["seed"].unique()):
+        seed_rows = cast(pd.DataFrame, gt_rows[gt_rows["seed"] == seed])
+        seed_composites = ground_truth_composites(
+            pd.concat([proxy_rows, seed_rows])
+        ).loc[composites.index]
+        seed_recovery = board_recovery(seed_composites)
+        shown = []
+        for metric, higher_is_better, label, _colour in METRICS:
+            ordering = proxy[metric].sort_values(ascending=not higher_is_better)
+            curve = regret_curve(seed_recovery, ordering)
+            shown.append(f"{label} top1={curve[0]:.4f} top3={curve[2]:.4f}")
+        all_random = random_regret_curve(seed_recovery)
+        healthy_random = random_regret_curve(cast(pd.Series, seed_recovery[healthy]))
+        seed_band = seed_recovery[healthy].max() - seed_recovery[healthy].min()
+        print(f"  seed {seed}: " + "  ".join(shown))
+        print(
+            f"          random best of 3: all 80={all_random[2]:.4f}  "
+            f"healthy={healthy_random[2]:.4f}  healthy band={seed_band:.4f}  "
+            f"ceiling={seed_recovery.idxmax()}"
+        )
+
+    _header(
+        "A criterion without a probe: shortfall in next-move KL",
+        "Sec. Results, last para",
+    )
+    # Lower KL is better, so the sign is flipped to reuse the higher-is-better shortfall.
+    negated_kl = -cast(pd.Series, composites["next_move_fidelity_kl"])
+    for metric, higher_is_better, label, _colour in METRICS:
+        ordering = proxy[metric].sort_values(ascending=not higher_is_better)
+        curve = regret_curve(negated_kl, ordering)
+        print(f"  {label:20s} KL shortfall top1={curve[0]:.5f}  top3={curve[2]:.5f}")
+    kl_all = random_regret_curve(negated_kl)
+    kl_healthy = random_regret_curve(cast(pd.Series, negated_kl[healthy]))
+    print(
+        f"  random, 1 draw: all 80={kl_all[0]:.4f}  healthy={kl_healthy[0]:.5f}   "
+        f"(simulated, as for Table 1)"
+    )
+
+    _header(
+        "Choosing within a metric's top three without ground truth",
+        "Sec. Discussion, para 2",
+    )
+    # The top-k shortfall assumes the best of the k can be identified. Without a
+    # downstream check, the relevant figure is what any one of the k could cost.
+    recovery_ceiling = recovery.max()
+    for metric, higher_is_better, label, _colour in METRICS:
+        ordering = proxy[metric].sort_values(ascending=not higher_is_better)
+        top_three = recovery.loc[ordering.index[:3]]
+        print(
+            f"  {label:20s} best={recovery_ceiling - top_three.max():.4f}  "
+            f"mean={recovery_ceiling - top_three.mean():.4f}  "
+            f"worst={recovery_ceiling - top_three.min():.4f}"
+        )
+
+    _header(
+        "Ground truth against dictionary width, healthy band",
+        "Sec. Limitations, para 3; App. C, 'Ground truth against dictionary width'",
+    )
+    width = meta["width"].astype(float)
+    healthy_table = pd.DataFrame(
+        {
+            "width": width[healthy],
+            "architecture": meta.loc[healthy, "architecture"],
+            "l0": proxy.loc[healthy, "l0"],
+            "fvu": proxy.loc[healthy, "fvu"],
+            "recovery": recovery[healthy],
+            "kl": composites.loc[healthy, "next_move_fidelity_kl"],
+        }
+    )
+    print(
+        healthy_table.groupby("width")[["recovery", "kl", "l0", "fvu"]]
+        .agg(["count", "median"])
+        .round(4)
+        .to_string()
+    )
+    by_architecture = healthy_table.groupby(["architecture", "width"])[
+        "recovery"
+    ].mean()
+    for architecture, group in healthy_table.groupby("architecture"):
+        rho, p = spearmanr(group["width"], group["recovery"])
+        narrow, wide = by_architecture.loc[architecture].sort_index()
+        print(
+            f"  {architecture:20s} n={len(group):2d}  rho(width, recovery)={rho:+.3f} "
+            f"(p={p:.3f})  mean(8192) - mean(4096)={wide - narrow:+.4f}"
+        )
+    architecture_controls = pd.get_dummies(
+        healthy_table["architecture"], drop_first=True
+    ).astype(float)
+    for target in ("recovery", "kl"):
+        outcome = cast(pd.Series, healthy_table[target])
+        healthy_width = cast(pd.Series, healthy_table["width"])
+        arch_only = partial_correlation(healthy_width, outcome, architecture_controls)
+        arch_and_l0 = partial_correlation(
+            healthy_width,
+            outcome,
+            architecture_controls.assign(l0=healthy_table["l0"]),
+        )
+        print(
+            f"  partial rho(width, {target:8s}) | arch    = {arch_only[0]:+.3f} "
+            f"(p={arch_only[1]:.2e})"
+        )
+        print(
+            f"  partial rho(width, {target:8s}) | arch+L0 = {arch_and_l0[0]:+.3f} "
+            f"(p={arch_and_l0[1]:.2e})"
+        )
+
     # -------------------------------------------------- SPLIT-CONVENTION COMPARISON
     if (
         compare_path is not None
