@@ -1,4 +1,5 @@
 # How Much Does the Wrong SAE Cost?
+link to paper: https://openreview.net/forum?id=GxdFSvWwU1
 
 Code and results for "How Much Does the Wrong SAE Cost? Calibrating Quality Metrics
 Against Board-Game Ground Truth", Sofia B. Sartori, NeurIPS 2026 Workshop on
